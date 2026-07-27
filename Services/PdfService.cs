@@ -31,9 +31,19 @@ public class PdfService : IPdfService
         QuestPDF.Settings.License = LicenseType.Community;
 
         var azureStorageConnectionString = _configuration["AzureStorage:ConnectionString"];
-        if (!string.IsNullOrEmpty(azureStorageConnectionString))
+
+        if (string.IsNullOrEmpty(azureStorageConnectionString))
+        {
+            _logger.LogWarning("╔══════════════════════════════════════════════════════════════╗");
+            _logger.LogWarning("║  ⚠️  AZURE BLOB STORAGE NOT CONFIGURED!                      ║");
+            _logger.LogWarning("║  PDFs will be stored locally and LOST on container restart  ║");
+            _logger.LogWarning("║  Set environment variable: AzureStorage__ConnectionString   ║");
+            _logger.LogWarning("╚══════════════════════════════════════════════════════════════╝");
+        }
+        else
         {
             _blobServiceClient = new BlobServiceClient(azureStorageConnectionString);
+            _logger.LogInformation("✓ Azure Blob Storage configured successfully");
         }
     }
 
@@ -145,10 +155,18 @@ public class PdfService : IPdfService
             }).GeneratePdf(filePath);
         });
 
+        // Check if Azure Blob Storage is configured
+        if (_blobServiceClient == null)
+        {
+            _logger.LogWarning("Azure Blob Storage is NOT configured! PDFs will be stored locally and will be lost on restart.");
+            _logger.LogWarning("Please set the AzureStorage__ConnectionString environment variable.");
+        }
+
         if (_blobServiceClient != null)
         {
             try
             {
+                _logger.LogInformation($"Uploading PDF to Azure Blob Storage: {fileName}");
                 var containerClient = _blobServiceClient.GetBlobContainerClient(_containerName);
                 await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
 
@@ -159,7 +177,7 @@ public class PdfService : IPdfService
                     await blobClient.UploadAsync(fileStream, overwrite: true);
                 }
 
-                _logger.LogInformation($"PDF uploaded to Azure Blob Storage: {fileName}");
+                _logger.LogInformation($"✓ PDF successfully uploaded to Azure Blob Storage: {fileName}");
 
                 if (File.Exists(filePath))
                 {
@@ -170,11 +188,13 @@ public class PdfService : IPdfService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to upload PDF to Azure Blob Storage");
+                _logger.LogError(ex, $"✗ Failed to upload PDF to Azure Blob Storage: {fileName}");
+                _logger.LogWarning("Falling back to local storage (PDFs will be lost on restart!)");
                 return Path.Combine("pdfs", fileName);
             }
         }
 
+        _logger.LogWarning($"PDF stored locally (will be lost on restart): {filePath}");
         return Path.Combine("pdfs", fileName);
     }
 
