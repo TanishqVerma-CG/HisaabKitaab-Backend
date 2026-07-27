@@ -49,30 +49,50 @@ public class PdfService : IPdfService
 
     public async Task<string> GenerateBillPdfAsync(Bill bill)
     {
+        _logger.LogInformation($"Starting PDF generation for Bill: {bill.BillNumber}");
+        _logger.LogInformation($"Customer: {bill.Customer?.Name ?? "NULL"}");
+        _logger.LogInformation($"Bill Items Count: {bill.BillItems?.Count ?? 0}");
+
+        if (bill.Customer == null)
+        {
+            _logger.LogError("Customer is NULL! Cannot generate PDF.");
+            throw new Exception("Bill customer data is missing");
+        }
+
+        if (bill.BillItems == null || !bill.BillItems.Any())
+        {
+            _logger.LogError("Bill items are NULL or empty! Cannot generate PDF.");
+            throw new Exception("Bill items data is missing");
+        }
+
         var fileName = $"{bill.BillNumber}.pdf";
         var filePath = Path.Combine(_pdfDirectory, fileName);
 
         var shopName = _configuration["ShopDetails:Name"] ?? "Your Shop Name";
         var shopGst = _configuration["ShopDetails:GstNumber"] ?? "GST000000000";
 
-        await Task.Run(() =>
+        _logger.LogInformation($"Generating PDF with shop: {shopName}");
+
+        try
         {
-            Document.Create(container =>
+            await Task.Run(() =>
             {
-                container.Page(page =>
+                Document.Create(container =>
                 {
-                    page.Size(PageSizes.A4);
-                    page.Margin(40);
-
-                    page.Header().Column(column =>
+                    container.Page(page =>
                     {
-                        column.Item().AlignCenter().Text(shopName).FontSize(20).Bold();
-                        column.Item().AlignCenter().Text($"GST: {shopGst}").FontSize(10);
-                        column.Item().PaddingVertical(10).LineHorizontal(1);
-                    });
+                        page.Size(PageSizes.A4);
+                        page.Margin(40);
 
-                    page.Content().Column(column =>
-                    {
+                        page.Header().Column(column =>
+                        {
+                            column.Item().AlignCenter().Text(shopName).FontSize(20).Bold();
+                            column.Item().AlignCenter().Text($"GST: {shopGst}").FontSize(10);
+                            column.Item().PaddingVertical(10).LineHorizontal(1);
+                        });
+
+                        page.Content().Column(column =>
+                        {
                         column.Item().Row(row =>
                         {
                             row.RelativeItem().Column(col =>
@@ -153,7 +173,26 @@ public class PdfService : IPdfService
                     });
                 });
             }).GeneratePdf(filePath);
-        });
+            });
+
+            _logger.LogInformation($"PDF file generated successfully at: {filePath}");
+
+            if (File.Exists(filePath))
+            {
+                var fileInfo = new FileInfo(filePath);
+                _logger.LogInformation($"PDF file size: {fileInfo.Length} bytes");
+            }
+            else
+            {
+                _logger.LogError("PDF file was not created!");
+                throw new Exception("PDF generation failed - file not created");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error during PDF generation for {bill.BillNumber}");
+            throw;
+        }
 
         // Check if Azure Blob Storage is configured
         if (_blobServiceClient == null)
@@ -174,6 +213,7 @@ public class PdfService : IPdfService
 
                 using (var fileStream = File.OpenRead(filePath))
                 {
+                    _logger.LogInformation($"Uploading PDF file, size: {fileStream.Length} bytes");
                     await blobClient.UploadAsync(fileStream, overwrite: true);
                 }
 
