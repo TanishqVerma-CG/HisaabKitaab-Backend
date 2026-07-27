@@ -1,0 +1,6 @@
+﻿namespace BillingSystem.API
+{
+    public class vercel
+    {
+    }
+}
