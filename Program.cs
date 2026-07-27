@@ -9,6 +9,12 @@ using BillingSystem.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.Sources
+    .OfType<Microsoft.Extensions.Configuration.Json.JsonConfigurationSource>()
+    .ToList()
+    .ForEach(s => s.ReloadOnChange = false);
+
+
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .CreateLogger();
