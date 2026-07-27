@@ -30,6 +30,10 @@ public class PdfService : IPdfService
 
         QuestPDF.Settings.License = LicenseType.Community;
 
+        // Use default font fallback for containers without system fonts
+        QuestPDF.Settings.EnableDebugging = false;
+        QuestPDF.Settings.CheckIfAllTextGlyphsAreAvailable = false;
+
         var azureStorageConnectionString = _configuration["AzureStorage:ConnectionString"];
 
         if (string.IsNullOrEmpty(azureStorageConnectionString))
@@ -83,12 +87,15 @@ public class PdfService : IPdfService
         {
             await Task.Run(() =>
             {
-                Document.Create(container =>
+                var document = Document.Create(container =>
                 {
                     container.Page(page =>
                     {
                         page.Size(PageSizes.A4);
                         page.Margin(40);
+
+                        // Use default document settings
+                        page.DefaultTextStyle(x => x.FontSize(10).FontFamily("Arial", "Helvetica", "sans-serif"));
 
                         page.Header().Column(column =>
                         {
@@ -178,7 +185,9 @@ public class PdfService : IPdfService
                         text.CurrentPageNumber();
                     });
                 });
-            }).GeneratePdf(filePath);
+                });
+
+                document.GeneratePdf(filePath);
             });
 
             _logger.LogInformation($"PDF file generated successfully at: {filePath}");
