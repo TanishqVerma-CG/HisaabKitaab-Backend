@@ -73,6 +73,12 @@ public class PdfService : IPdfService
 
         _logger.LogInformation($"Generating PDF with shop: {shopName}");
 
+        // Log bill items details
+        foreach (var item in bill.BillItems)
+        {
+            _logger.LogInformation($"Bill Item: Product={item.Product?.Name ?? "NULL"}, ProductId={item.ProductId}, Qty={item.Quantity}, Rate={item.Rate}");
+        }
+
         try
         {
             await Task.Run(() =>
@@ -138,8 +144,8 @@ public class PdfService : IPdfService
                             foreach (var item in bill.BillItems)
                             {
                                 table.Cell().Element(CellStyle).Text(index++.ToString());
-                                table.Cell().Element(CellStyle).Text(item.Product.Name);
-                                table.Cell().Element(CellStyle).Text(item.Product.HsnCode ?? "N/A");
+                                table.Cell().Element(CellStyle).Text(item.Product?.Name ?? "Unknown Product");
+                                table.Cell().Element(CellStyle).Text(item.Product?.HsnCode ?? "N/A");
                                 table.Cell().Element(CellStyle).AlignRight().Text(item.Quantity.ToString("N2"));
                                 table.Cell().Element(CellStyle).AlignRight().Text(item.Rate.ToString("N2"));
                                 table.Cell().Element(CellStyle).AlignRight().Text(item.GstRate.ToString("N2"));
