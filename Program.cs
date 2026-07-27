@@ -51,6 +51,9 @@ builder.Services.AddCors(options =>
 // ... after builder.Build()
 
 
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+
+
 
 
 var app = builder.Build();
@@ -72,4 +75,5 @@ app.UseCors("ReactPolicy");
 
 app.MapControllers();
 
+app.Urls.Add($"http://0.0.0.0:{port}");
 app.Run();
