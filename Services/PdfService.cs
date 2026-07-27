@@ -1,8 +1,11 @@
 ﻿using BillingSystem.Models;
+using BillingSystem.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using Microsoft.Extensions.Configuration;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 
 namespace BillingSystem.Services;
 
@@ -11,10 +14,14 @@ public class PdfService : IPdfService
     private readonly string _pdfDirectory;
     private readonly string _signaturePath;
     private readonly IConfiguration _configuration;
+    private readonly BlobServiceClient _blobServiceClient;
+    private readonly string _containerName = "pdfs";
+    private readonly ILogger<PdfService> _logger;
 
-    public PdfService(IConfiguration configuration)
+    public PdfService(IConfiguration configuration, ILogger<PdfService> logger)
     {
         _configuration = configuration;
+        _logger = logger;
         _pdfDirectory = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "pdfs");
         _signaturePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "signature.png");
 
@@ -22,6 +29,12 @@ public class PdfService : IPdfService
             Directory.CreateDirectory(_pdfDirectory);
 
         QuestPDF.Settings.License = LicenseType.Community;
+
+        var azureStorageConnectionString = _configuration["AzureStorage:ConnectionString"];
+        if (!string.IsNullOrEmpty(azureStorageConnectionString))
+        {
+            _blobServiceClient = new BlobServiceClient(azureStorageConnectionString);
+        }
     }
 
     public async Task<string> GenerateBillPdfAsync(Bill bill)
@@ -132,15 +145,76 @@ public class PdfService : IPdfService
             }).GeneratePdf(filePath);
         });
 
+        if (_blobServiceClient != null)
+        {
+            try
+            {
+                var containerClient = _blobServiceClient.GetBlobContainerClient(_containerName);
+                await containerClient.CreateIfNotExistsAsync(PublicAccessType.None);
+
+                var blobClient = containerClient.GetBlobClient(fileName);
+
+                using (var fileStream = File.OpenRead(filePath))
+                {
+                    await blobClient.UploadAsync(fileStream, overwrite: true);
+                }
+
+                _logger.LogInformation($"PDF uploaded to Azure Blob Storage: {fileName}");
+
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+
+                return fileName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload PDF to Azure Blob Storage");
+                return Path.Combine("pdfs", fileName);
+            }
+        }
+
         return Path.Combine("pdfs", fileName);
     }
 
     public async Task<byte[]> GetBillPdfAsync(string pdfPath)
     {
+        if (_blobServiceClient != null)
+        {
+            try
+            {
+                var fileName = Path.GetFileName(pdfPath);
+                var containerClient = _blobServiceClient.GetBlobContainerClient(_containerName);
+                var blobClient = containerClient.GetBlobClient(fileName);
+
+                if (!await blobClient.ExistsAsync())
+                {
+                    _logger.LogWarning($"PDF not found in Azure Blob Storage: {fileName}");
+                    throw new FileNotFoundException($"PDF file not found: {fileName}");
+                }
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    await blobClient.DownloadToAsync(memoryStream);
+                    _logger.LogInformation($"PDF downloaded from Azure Blob Storage: {fileName}");
+                    return memoryStream.ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error downloading PDF from Azure Blob Storage: {pdfPath}");
+                throw;
+            }
+        }
+
         var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", pdfPath);
 
         if (!File.Exists(fullPath))
-            throw new Exception("PDF file not found");
+        {
+            _logger.LogWarning($"PDF not found in local storage: {fullPath}");
+            throw new FileNotFoundException("PDF file not found");
+        }
 
         return await File.ReadAllBytesAsync(fullPath);
     }
